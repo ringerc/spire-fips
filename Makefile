@@ -66,6 +66,10 @@ help:
 	@echo
 	@echo "For verbose output set V=1"
 	@echo "  for example: $(cyan)make V=1 build$(reset)"
+	@echo
+	@echo "Options available as env-vars or arguments to make:"
+	@echo "    FIPS=true     - Build a FIPS-capable binary with boringssl (requires cgo)"
+	@echo "    FIPSONLY=true - Build a binary that forces FIPS mode (implies FIPS=true)"
 
 # Used to force some rules to run every time
 FORCE: ;
@@ -234,9 +238,17 @@ ifneq ($(GOVERBOSE),)
 	go_flags += -v
 endif
 
+go_build_flags ?= $(GO_BUILD_FLAGS)
+
 # Determine the ldflags passed to the go linker. The git tag and hash will be
 # provided to the linker unless the git status is dirty.
-go_ldflags := -s -w
+go_ldflags ?= $(GO_LDFLAGS)
+ifeq ($(go_ldflags),)
+    # strip binaries by default. This can be overridden by setting a non-empty
+    # override flag set like GO_LDFLAGS=-w on the Make command line or in the
+    # environment.
+    go_ldflags := -s -w
+endif
 ifeq ($(git_dirty),)
 	ifneq ($(git_tag),)
 		# Remove the "v" prefix from the git_tag for use as the version number.
@@ -249,6 +261,20 @@ ifeq ($(git_dirty),)
 	endif
 endif
 
+go_build_env ?= $(GO_BUILD_ENV)
+ifeq ($(FIPSONLY),true)
+	FIPS=true
+	# This imports crypto/tls/fipsonly to force FIPS on, and fail the build
+	# if FIPS is disabled. This overrides runtime FIPS detection, producing
+	# a FIPS-only binary that ignores the system's FIPS mode to force FIPS.
+	go_build_flags += -tags fipsonly
+endif
+ifeq ($(FIPS),true)
+	# Build a FIPS-capable go binary with boringssl. This will respect the
+	# system's FIPS mode unless FIPSONLY is also set to true above.
+	go_build_env += CGO_ENABLED=1 GOEXPERIMENT=boringcrypto
+endif
+
 #############################################################################
 # Build Targets
 #############################################################################
@@ -256,7 +282,7 @@ endif
 .PHONY: build
 build: tidy $(addprefix bin/,$(binaries))
 
-go_build := $(go_path) go build $(go_flags) -ldflags '$(go_ldflags)' -o
+go_build := $(go_path) $(go_build_env) go build $(go_flags) $(go_build_flags) -ldflags '$(go_ldflags)' -o
 
 bin/%: cmd/% FORCE | go-check
 	@echo Building $@…
@@ -336,6 +362,7 @@ $1: $3 container-builder
 		--platform $(PLATFORMS) \
 		--build-arg goversion=$(go_version) \
 		--build-arg TAG=$(TAG) \
+		--build-arg FIPS=$(FIPS) \
 		--target $2 \
 		-o type=oci,dest=$2-image.tar \
 		-f $3 \

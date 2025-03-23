@@ -20,6 +20,8 @@ FROM --platform=${BUILDPLATFORM} base as builder
 ARG TAG
 ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG FIPS
+ARG FIPSONLY
 COPY --link --from=xx / /
 
 RUN xx-go --wrap
@@ -28,7 +30,7 @@ ENV CGO_ENABLED=1
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     if [ "$TARGETARCH" = "arm64" ]; then CC=aarch64-alpine-linux-musl; elif [ "$TARGETARCH" = "s390x" ]; then CC=s390x-alpine-linux-musl; fi && \
-    make build-static git_tag=$TAG git_dirty="" && \
+    make FIPS="${FIPS:-}" FIPSONLY="${FIPSONLY:-}" build-static git_tag="${TAG}" git_dirty="" && \
     for f in $(find bin -executable -type f); do xx-verify --static $f; done
 
 FROM --platform=${BUILDPLATFORM} scratch AS spire-base

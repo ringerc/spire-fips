@@ -65,6 +65,10 @@ A third party security firm ([Cure53](https://cure53.de/)) completed a security 
 - [SIG-Security SPIFFE/SPIRE Security Assessment: full assessment](https://github.com/cncf/sig-security/blob/main/assessments/projects/spiffe-spire/self-assessment.md)
 - [Scrutinizing SPIRE to Sensibly Strengthen SPIFFE Security](https://blog.spiffe.io/scrutinizing-spire-security-9c82ba542019)
 
+### FIPS mode
+
+Spire can be built with a FIPS-compliant cryptographic module. See [FIPS mode](/doc/fips_mode.md) for more information.
+
 ### Reporting Security Vulnerabilities
 
 If you've found a vulnerability or a potential vulnerability in SPIRE please let us know at <security@spiffe.io>. We'll send a confirmation email to acknowledge your report, and we'll send an additional email when we've identified the issue positively or negatively.
