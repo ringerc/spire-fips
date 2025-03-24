@@ -25,7 +25,24 @@ There are three levels of FIPS support available.
   Set the same environment variables as for FIPS-140 capable, and also set
   `GOFLAGS=-tags fipsonly`.
 
-For convenience, make flags are exposed for binary (but not image) builds:
+A goreleaser configuration is provided for FIPS-enforcing builds, along with a
+Dockerfile that uses them. To build a FIPS-140-enforced binary set:
+
+```sh
+goreleaser build -f .goreleaser.yml --skip=validate --verbose --single-target --clean                  
+```
+
+To build container images for amd64 and arm64:
+
+```sh
+# Enable cross-arch builders
+docker run --privileged --rm tonistiigi/binfmt --install all
+# Build for amd64 and arm64
+docker buildx build --platform linux/amd64 --load -f Dockerfile --target spire-server --tag spire-server:latest-amd64 .
+docker buildx build --platform linux/arm64 --load -f Dockerfile --target spire-server --tag spire-server:latest-arm64 .
+```
+
+For convenience, make flags are also exposed for binary (but not image) builds:
 
 | Make flag        | FIPS capability   |
 | ---------------- | ----------------- |
