@@ -6,9 +6,12 @@ ifneq ($(GOROOT),)
 	export GOROOT=
 endif
 
+docker_build_args :=
+
 E:=@
 ifeq ($(V),1)
 	E=
+	docker_build_args += --build-arg V=1
 endif
 
 cyan := $(shell which tput > /dev/null && tput setaf 6 2>/dev/null || echo "")
@@ -68,8 +71,8 @@ help:
 	@echo "  for example: $(cyan)make V=1 build$(reset)"
 	@echo
 	@echo "Options available as env-vars or arguments to make:"
-	@echo "    FIPS=true     - Build a FIPS-capable binary with boringssl (requires cgo)"
-	@echo "    FIPSONLY=true - Build a binary that forces FIPS mode (implies FIPS=true)"
+	@echo "    FIPS=1     - Build a FIPS-capable binary with boringssl (requires cgo)"
+	@echo "    FIPSONLY=1 - Build a binary that forces FIPS mode (implies FIPS=1)"
 
 # Used to force some rules to run every time
 FORCE: ;
@@ -262,17 +265,19 @@ ifeq ($(git_dirty),)
 endif
 
 go_build_env ?= $(GO_BUILD_ENV)
-ifeq ($(FIPSONLY),true)
-	FIPS=true
-	# This imports crypto/tls/fipsonly to force FIPS on, and fail the build
-	# if FIPS is disabled. This overrides runtime FIPS detection, producing
-	# a FIPS-only binary that ignores the system's FIPS mode to force FIPS.
-	go_build_flags += -tags fipsonly
+ifeq ($(FIPSONLY),1)
+FIPS := 1
+# This imports crypto/tls/fipsonly to force FIPS on, and fail the build
+# if FIPS is disabled. This overrides runtime FIPS detection, producing
+# a FIPS-only binary that ignores the system's FIPS mode to force FIPS.
+go_build_flags += -tags fipsonly
+docker_build_args += --build-arg FIPSONLY=1
 endif
-ifeq ($(FIPS),true)
-	# Build a FIPS-capable go binary with boringssl. This will respect the
-	# system's FIPS mode unless FIPSONLY is also set to true above.
-	go_build_env += CGO_ENABLED=1 GOEXPERIMENT=boringcrypto
+ifeq ($(FIPS),1)
+# Build a FIPS-capable go binary with boringssl. This will respect the
+# system's FIPS mode unless FIPSONLY is also set to 1 above.
+go_build_env += CGO_ENABLED=1 GOEXPERIMENT=boringcrypto
+docker_build_args += --build-arg FIPS=1
 endif
 
 #############################################################################
@@ -293,7 +298,7 @@ bin/%: support/% FORCE | go-check
 	$(E)$(go_build) $@$(exe) ./$<
 
 #############################################################################
-# Build static binaries for docker images
+# Build static binaries for non-FIPS docker images
 #############################################################################
 
 .PHONY: build-static
@@ -302,7 +307,7 @@ bin/%: support/% FORCE | go-check
 # https://7thzero.com/blog/golang-w-sqlite3-docker-scratch-image
 build-static: tidy $(addprefix bin/static/,$(binaries))
 
-go_build_static := $(go_path) go build $(go_flags) -ldflags '$(go_ldflags) -linkmode external -extldflags "-static"' -o
+go_build_static := if [ -n "$${FIPS:-}" ] && [ $${FIPS} -eq 1 ]; then echo 1>&2 "ERROR: tried to build-static with FIPS=1"; exit 1; fi; $(go_path) go build $(go_flags) -ldflags '$(go_ldflags) -linkmode external -extldflags "-static"' -o
 
 bin/static/%: cmd/% FORCE | go-check
 	@echo Building $@…
@@ -362,10 +367,11 @@ $1: $3 container-builder
 		--platform $(PLATFORMS) \
 		--build-arg goversion=$(go_version) \
 		--build-arg TAG=$(TAG) \
-		--build-arg FIPS=$(FIPS) \
 		--target $2 \
 		-o type=oci,dest=$2-image.tar \
 		-f $3 \
+		$(docker_build_args) \
+		--progress=plain \
 		.
 
 endef
