@@ -1,0 +1,63 @@
+version: 2
+project_name: spire-fips
+env:
+  - CGO_ENABLED=1
+  - GOEXPERIMENT=boringcrypto
+builds:
+  - id: agent
+    binary: spire-agent
+    main: ./cmd/spire-agent/.
+    no_unique_dist_dir: true
+    # For debug builds remove -s from the ldflags
+    ldflags: -s -w
+    tags:
+      - fipsonly
+    env:
+      - >-
+        {{- if eq .Os "linux" }}
+          {{- if eq .Arch "amd64"}}CC=x86_64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+        {{- end }}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+  - id: server
+    binary: spire-server
+    main: ./cmd/spire-server/.
+    no_unique_dist_dir: true
+    ldflags: -s -w
+    tags:
+      - fipsonly
+    env:
+      - >-
+        {{- if eq .Os "linux" }}
+          {{- if eq .Arch "amd64"}}CC=x86_64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+        {{- end }}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+  - id: oidc-discovery-provider
+    binary: oidc-discovery-provider
+    main: ./support/oidc-discovery-provider/.
+    no_unique_dist_dir: true
+    ldflags: -s -w
+    tags:
+      - fipsonly
+    env:
+      - >-
+        {{- if eq .Os "linux" }}
+          {{- if eq .Arch "amd64"}}CC=x86_64-linux-gnu-gcc{{- end }}
+          {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+        {{- end }}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+checksum:
+  name_template: '{{ .ProjectName }}-{{ .Version }}-checksums.txt'

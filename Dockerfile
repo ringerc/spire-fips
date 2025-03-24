@@ -1,51 +1,41 @@
 # syntax = docker/dockerfile:1.6.0@sha256:ac85f380a63b13dfcefa89046420e1781752bab202122f8f50032edf31be0021
+#
+# This is a multi-arch build. It needs quemu, though most of the work is done
+# by the build phase as a cross-arch build. See
+# https://docs.docker.com/build/building/multi-platform/#install-qemu-manually
+# for a quick way to set up qemu builds.
 
 # Build stage
 ARG goversion
-FROM --platform=${BUILDPLATFORM} golang:${goversion}-alpine3.20 as base
+FROM --platform=$BUILDPLATFORM goreleaser/goreleaser-cross:v1.24 AS builder
 WORKDIR /spire
-RUN apk --no-cache --update add file bash clang lld pkgconfig git make
 COPY go.* ./
 # https://go.dev/ref/mod#module-cache
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 
-# xx is a helper for cross-compilation
-# when bumping to a new version analyze the new version for security issues
-# then use crane to lookup the digest of that version so we are immutable
-# crane digest tonistiigi/xx:1.3.0
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.5.0@sha256:0c6a569797744e45955f39d4f7538ac344bfb7ebf0a54006a0a4297b153ccf0f AS xx
-
-FROM --platform=${BUILDPLATFORM} base as builder
-ARG TAG
-ARG TARGETPLATFORM
 ARG TARGETARCH
-ARG FIPS
-ARG FIPSONLY
-COPY --link --from=xx / /
 
-RUN xx-go --wrap
-RUN set -e ; xx-apk --no-cache --update add build-base musl-dev libseccomp-dev
-ENV CGO_ENABLED=1
+# Build the Spire executables, possibly cross-compiling
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    if [ "$TARGETARCH" = "arm64" ]; then CC=aarch64-alpine-linux-musl; elif [ "$TARGETARCH" = "s390x" ]; then CC=s390x-alpine-linux-musl; fi && \
-    make FIPS="${FIPS:-}" FIPSONLY="${FIPSONLY:-}" build-static git_tag="${TAG}" git_dirty="" && \
-    for f in $(find bin -executable -type f); do xx-verify --static $f; done
+    GOARCH=${TARGETARCH} goreleaser build -f .goreleaser.yml --skip=validate --clean --verbose --single-target
 
-FROM --platform=${BUILDPLATFORM} scratch AS spire-base
-COPY --link --from=builder --chown=root:root --chmod=755 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# Prepare the target image
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.5 as spire-base
+#COPY --link --from=builder --chown=root:root --chmod=755 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 WORKDIR /opt/spire
 
-# Preparation environment for setting up directories
-FROM alpine as prep-spire-server
+# Preparation environment for setting up directories without needing
+# to run with qemu
+FROM builder as prep-spire-server
 RUN mkdir -p /spireroot/opt/spire/bin \
     /spireroot/etc/spire/server \
     /spireroot/run/spire/server/private \
     /spireroot/tmp/spire-server/private \
     /spireroot/var/lib/spire/server
 
-FROM alpine as prep-spire-agent
+FROM builder as prep-spire-agent
 RUN mkdir -p /spireroot/opt/spire/bin \
     /spireroot/etc/spire/agent \
     /spireroot/run/spire/agent/public \
@@ -67,7 +57,7 @@ ARG spiregid=1000
 USER ${spireuid}:${spiregid}
 ENTRYPOINT ["/opt/spire/bin/spire-server", "run"]
 COPY --link --from=prep-spire-server --chown=${spireuid}:${spiregid} --chmod=755 /spireroot /
-COPY --link --from=builder --chown=${spireuid}:${spiregid} --chmod=755 /spire/bin/static/spire-server /opt/spire/bin/
+COPY --link --from=builder --chown=${spireuid}:${spiregid} --chmod=755 /spire/dist/spire-server /opt/spire/bin/
 
 # SPIRE Agent
 FROM spire-base AS spire-agent
@@ -76,7 +66,7 @@ ARG spiregid=0
 USER ${spireuid}:${spiregid}
 ENTRYPOINT ["/opt/spire/bin/spire-agent", "run"]
 COPY --link --from=prep-spire-agent --chown=${spireuid}:${spiregid} --chmod=755 /spireroot /
-COPY --link --from=builder --chown=${spireuid}:${spiregid} --chmod=755 /spire/bin/static/spire-agent /opt/spire/bin/
+COPY --link --from=builder --chown=${spireuid}:${spiregid} --chmod=755 /spire/dist/spire-agent /opt/spire/bin/
 
 # OIDC Discovery Provider
 FROM spire-base AS oidc-discovery-provider
@@ -84,4 +74,4 @@ ARG spireuid=1000
 ARG spiregid=1000
 USER ${spireuid}:${spiregid}
 ENTRYPOINT ["/opt/spire/bin/oidc-discovery-provider"]
-COPY --link --from=builder --chown=${spireuid}:${spiregid} --chmod=755 /spire/bin/static/oidc-discovery-provider /opt/spire/bin/
+COPY --link --from=builder --chown=${spireuid}:${spiregid} --chmod=755 /spire/dist/oidc-discovery-provider /opt/spire/bin/

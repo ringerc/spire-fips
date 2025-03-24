@@ -6,11 +6,11 @@
  * resulting in a build failure if the go toolchain is not FIPS capabile. The resulting
  * binary ignores the system's FIPS mode, forcing FIPS on.
  *
- * Pass FIPSONLY=true to make to enable this.
+ * Pass FIPSONLY=1 to make to enable this.
  *
  * It's also possible to build a FIPS-capable binary without forcing FIPS mode.
  * This is done by enabling GOEXPERIMENT=boringcrypto but not using the
- * fipsonly build tag. Pass FIPS=true flag to make to enable this.
+ * fipsonly build tag. Pass FIPS=1 flag to make to enable this.
  *
  * You can check FIPS status on the resulting binary by adding GO_LDFLAGS=-w to the
  * build, then running:
